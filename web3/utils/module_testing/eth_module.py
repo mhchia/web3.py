@@ -25,7 +25,8 @@ from web3.utils.datastructures import (
     HexBytes,
 )
 
-UNKOWN_HASH = '0xdeadbeef00000000000000000000000000000000000000000000000000000000'
+UNKNOWN_ADDRESS = '0xdeadbeef00000000000000000000000000000000'
+UNKNOWN_HASH = '0xdeadbeef00000000000000000000000000000000000000000000000000000000'
 
 
 class EthModuleTest(object):
@@ -277,7 +278,7 @@ class EthModuleTest(object):
         assert block['hash'] == empty_block['hash']
 
     def test_eth_getBlockByHash_not_found(self, web3, empty_block):
-        block = web3.eth.getBlock(UNKOWN_HASH)
+        block = web3.eth.getBlock(UNKNOWN_HASH)
         assert block is None
 
     def test_eth_getBlockByNumber_with_integer(self, web3, empty_block):
@@ -441,6 +442,84 @@ class EthModuleTest(object):
 
         result = web3.eth.uninstallFilter(filter.filter_id)
         assert result is True
+
+    def test_eth_getLogs_block_range_no_logs(self, web3, block_with_txn_with_log):
+        filter_params = {
+            "fromBlock": 0,
+            "toBlock": block_with_txn_with_log['number'] - 1,
+        }
+        result = web3.eth.getLogs(filter_params)
+        assert len(result) == 0
+
+    def test_eth_getLogs_block_range_with_logs(self,
+                                               web3,
+                                               block_with_txn_with_log,
+                                               emitter_contract,
+                                               txn_hash_with_log):
+        def assert_is_emitted_log(log_entry):
+            assert log_entry['blockNumber'] == block_with_txn_with_log['number']
+            assert log_entry['blockHash'] == block_with_txn_with_log['hash']
+            assert log_entry['logIndex'] == 0
+            assert is_same_address(log_entry['address'], emitter_contract.address)
+            assert log_entry['transactionIndex'] == 0
+            assert log_entry['transactionHash'] == HexBytes(txn_hash_with_log)
+
+        # Test with block range
+
+        # the range includes the block where the log resides in
+        filter_params = {
+            "fromBlock": block_with_txn_with_log['number'],
+            "toBlock": block_with_txn_with_log['number'],
+        }
+        result = web3.eth.getLogs(filter_params)
+        assert len(result) == 1
+        log_entry = result[0]
+        assert_is_emitted_log(log_entry)
+
+        # the range is wrong
+        filter_params = {
+            "fromBlock": block_with_txn_with_log['number'],
+            "toBlock": block_with_txn_with_log['number'] - 1,
+        }
+        result = web3.eth.getLogs(filter_params)
+        assert len(result) == 0
+
+        # the range excludes the block where the log resides in
+        filter_params = {
+            "fromBlock": block_with_txn_with_log['number'] + 1,
+            "toBlock": web3.eth.blockNumber,
+        }
+        result = web3.eth.getLogs(filter_params)
+        assert len(result) == 0
+
+        # specify only `from_block`. by default `to_block` should be 'latest'
+        filter_params = {
+            "fromBlock": 0,
+        }
+        result = web3.eth.getLogs(filter_params)
+        assert len(result) == 1
+        log_entry = result[0]
+        assert_is_emitted_log(log_entry)
+
+        # Test with `address`
+
+        # filter with emitter_contract.address
+        filter_params = {
+            "fromBlock": 0,
+            "address": emitter_contract.address,
+        }
+        result = web3.eth.getLogs(filter_params)
+        assert len(result) == 1
+        log_entry = result[0]
+        assert_is_emitted_log(log_entry)
+
+        # filter with other address
+        filter_params = {
+            "fromBlock": 0,
+            "address": UNKNOWN_ADDRESS,
+        }
+        result = web3.eth.getLogs(filter_params)
+        assert len(result) == 0
 
     def test_eth_uninstallFilter(self, web3):
         filter = web3.eth.filter({})
